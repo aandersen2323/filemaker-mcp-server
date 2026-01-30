@@ -37,14 +37,20 @@ For ODBC access to work, each FileMaker database must:
 
 ## Installation
 
+**IMPORTANT:** FileMaker 9 ODBC driver is 32-bit only. You must use 32-bit Python.
+
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/filemaker-mcp-server.git
+git clone https://github.com/aandersen2323/filemaker-mcp-server.git
 cd filemaker-mcp-server
 
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate  # Windows
+# Install 32-bit Python (if not already installed)
+winget install Python.Python.3.12 --architecture x86
+
+# Create virtual environment with 32-bit Python
+# Path may vary - check your Python installation location
+"C:\Users\YOUR_USER\AppData\Local\Programs\Python\Python312-32\python.exe" -m venv venv32
+venv32\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -60,14 +66,28 @@ python filemaker_mcp_server.py
 
 ### Configuring with Claude Desktop
 
-Add to your Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
+1. Copy `.env.example` to `.env` and fill in your FileMaker credentials
+2. Add to your Claude Desktop config (`%APPDATA%\Claude\claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "filemaker": {
-      "command": "python",
-      "args": ["C:\\path\\to\\filemaker_mcp_server.py"],
+      "command": "C:\\Users\\YOUR_USER\\path\\to\\venv32\\Scripts\\python.exe",
+      "args": ["C:\\Users\\YOUR_USER\\path\\to\\filemaker_mcp_server.py"]
+    }
+  }
+}
+```
+
+Or with inline credentials (not recommended):
+
+```json
+{
+  "mcpServers": {
+    "filemaker": {
+      "command": "C:\\Users\\YOUR_USER\\path\\to\\venv32\\Scripts\\python.exe",
+      "args": ["C:\\Users\\YOUR_USER\\path\\to\\filemaker_mcp_server.py"],
       "env": {
         "FILEMAKER_DSN": "FileMaker",
         "FILEMAKER_USER": "your_username",

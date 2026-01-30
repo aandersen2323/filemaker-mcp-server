@@ -10,12 +10,19 @@ FileMaker data.
 import asyncio
 import json
 import logging
+import os
 import pyodbc
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from mcp.server import Server
+
+# Load environment variables from .env file
+env_path = Path(__file__).parent / ".env"
+load_dotenv(env_path)
 from mcp.server.stdio import stdio_server
 from mcp.types import (
     Resource,
@@ -32,15 +39,17 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("filemaker-mcp-server")
 
 # FileMaker ODBC DSN name - configure this in Windows ODBC Data Sources
-DEFAULT_DSN = "FileMaker"
+DEFAULT_DSN = os.environ.get("FILEMAKER_DSN", "FileMaker")
+DEFAULT_USER = os.environ.get("FILEMAKER_USER", "")
+DEFAULT_PASS = os.environ.get("FILEMAKER_PASS", "")
 
 
 @dataclass
 class FileMakerConfig:
     """Configuration for FileMaker ODBC connection."""
     dsn: str = DEFAULT_DSN
-    username: str = ""
-    password: str = ""
+    username: str = DEFAULT_USER
+    password: str = DEFAULT_PASS
     database: str = ""
 
 
