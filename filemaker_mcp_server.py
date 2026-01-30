@@ -65,11 +65,11 @@ class FileMakerConnection:
         db = database or self.config.database
 
         # Build connection string for FileMaker ODBC
-        # FileMaker uses its own ODBC driver
+        # SequeLink driver uses ServerDataSource to specify the database
         conn_parts = [f"DSN={self.config.dsn}"]
 
         if db:
-            conn_parts.append(f"Database={db}")
+            conn_parts.append(f"ServerDataSource={db}")
         if self.config.username:
             conn_parts.append(f"UID={self.config.username}")
         if self.config.password:
@@ -92,8 +92,12 @@ class FileMakerConnection:
             self._connection = None
             logger.info("FileMaker connection closed")
 
-    def execute_query(self, query: str, params: tuple = None) -> list[dict]:
-        """Execute a SQL query and return results as list of dicts."""
+    def execute_query(self, query: str, params: tuple = None, limit: int = 100) -> list[dict]:
+        """Execute a SQL query and return results as list of dicts.
+
+        Note: FileMaker ODBC doesn't support FETCH FIRST or LIMIT clauses,
+        so we use cursor.fetchmany() to limit results instead.
+        """
         if not self._connection:
             raise RuntimeError("Not connected to database")
 
@@ -107,8 +111,8 @@ class FileMakerConnection:
             # Get column names
             columns = [desc[0] for desc in cursor.description] if cursor.description else []
 
-            # Fetch all results
-            rows = cursor.fetchall()
+            # Fetch limited results (FileMaker doesn't support SQL LIMIT clause)
+            rows = cursor.fetchmany(limit)
 
             # Convert to list of dicts
             results = []
@@ -371,6 +375,15 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 }
             ),
             Tool(
+                name="list_all_databases",
+                description="List all available FileMaker databases and their tables",
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            ),
+            Tool(
                 name="search_patients",
                 description="Search for patients by name, ID, or other criteria",
                 inputSchema={
@@ -382,8 +395,8 @@ def create_server(config: FileMakerConfig = None) -> Server:
                         },
                         "field": {
                             "type": "string",
-                            "description": "Field to search in (e.g., 'LastName', 'FirstName', 'PatientID')",
-                            "default": "LastName"
+                            "description": "Field to search in. Use quotes for fields with spaces: '\"Last Name\"', '\"First Name\"', '\"patient id#\"'",
+                            "default": "\"Last Name\""
                         },
                         "limit": {
                             "type": "integer",
@@ -454,13 +467,10 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 sql = arguments["sql"]
                 limit = arguments.get("limit", 100)
 
-                # Add LIMIT if not present and it's a SELECT
-                sql_upper = sql.upper().strip()
-                if sql_upper.startswith("SELECT") and "LIMIT" not in sql_upper:
-                    sql = f"{sql} FETCH FIRST {limit} ROWS ONLY"
-
+                # FileMaker ODBC doesn't support FETCH FIRST or LIMIT
+                # We pass limit to execute_query which uses fetchmany()
                 conn = get_connection(database)
-                results = conn.execute_query(sql)
+                results = conn.execute_query(sql, limit=limit)
 
                 return CallToolResult(
                     content=[
@@ -565,15 +575,41 @@ def create_server(config: FileMakerConfig = None) -> Server:
                     ]
                 )
 
+            elif name == "list_all_databases":
+                all_db_info = {}
+                for db in FILEMAKER_DATABASES:
+                    try:
+                        conn = get_connection(db)
+                        tables = conn.get_tables()
+                        all_db_info[db] = {"tables": tables, "count": len(tables)}
+                    except Exception as e:
+                        all_db_info[db] = {"error": str(e)}
+
+                return CallToolResult(
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "success": True,
+                                "databases": all_db_info
+                            }, indent=2)
+                        )
+                    ]
+                )
+
             elif name == "search_patients":
                 search_term = arguments["search_term"]
-                field = arguments.get("field", "LastName")
+                field = arguments.get("field", "\"Last Name\"")
                 limit = arguments.get("limit", 50)
 
-                sql = f"SELECT * FROM Patients WHERE {field} LIKE ? FETCH FIRST {limit} ROWS ONLY"
+                # Select specific columns to avoid memory issues with large records
+                sql = f"""SELECT "Last Name", "First Name", "Middle Initial",
+                         "Street Address", "City", "State", "Zip",
+                         "Home Phone", "Work Phone", "birth date"
+                         FROM Patients WHERE {field} LIKE ?"""
 
                 conn = get_connection("Patients")
-                results = conn.execute_query(sql, (f"%{search_term}%",))
+                results = conn.execute_query(sql, (f"%{search_term}%",), limit=limit)
 
                 return CallToolResult(
                     content=[
@@ -592,22 +628,24 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 date = arguments["date"]
                 end_date = arguments.get("end_date")
                 patient_id = arguments.get("patient_id")
+                limit = arguments.get("limit", 100)
 
+                # FileMaker field names have spaces: dateappt, timeappt, "patient id#"
                 if end_date:
-                    sql = "SELECT * FROM Appointments WHERE AppointmentDate BETWEEN ? AND ?"
+                    sql = "SELECT * FROM Appointments WHERE dateappt BETWEEN ? AND ?"
                     params = (date, end_date)
                 else:
-                    sql = "SELECT * FROM Appointments WHERE AppointmentDate = ?"
+                    sql = "SELECT * FROM Appointments WHERE dateappt = ?"
                     params = (date,)
 
                 if patient_id:
-                    sql += " AND PatientID = ?"
+                    sql += " AND \"patient id#\" = ?"
                     params = params + (patient_id,)
 
-                sql += " ORDER BY AppointmentTime"
+                sql += " ORDER BY timeappt"
 
                 conn = get_connection("Appointments")
-                results = conn.execute_query(sql, params)
+                results = conn.execute_query(sql, params, limit=limit)
 
                 return CallToolResult(
                     content=[
@@ -631,23 +669,23 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 conditions = []
                 params = []
 
+                # Note: Field names may need adjustment based on actual schema
                 if patient_id:
-                    conditions.append("PatientID = ?")
+                    conditions.append("\"patient id#\" = ?")
                     params.append(patient_id)
                 if start_date:
-                    conditions.append("TransactionDate >= ?")
+                    conditions.append("\"trans date\" >= ?")
                     params.append(start_date)
                 if end_date:
-                    conditions.append("TransactionDate <= ?")
+                    conditions.append("\"trans date\" <= ?")
                     params.append(end_date)
 
                 sql = "SELECT * FROM Transactions"
                 if conditions:
                     sql += " WHERE " + " AND ".join(conditions)
-                sql += f" ORDER BY TransactionDate DESC FETCH FIRST {limit} ROWS ONLY"
 
                 conn = get_connection("Transactions")
-                results = conn.execute_query(sql, tuple(params) if params else None)
+                results = conn.execute_query(sql, tuple(params) if params else None, limit=limit)
 
                 return CallToolResult(
                     content=[
