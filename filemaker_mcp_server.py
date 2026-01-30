@@ -602,10 +602,12 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 field = arguments.get("field", "\"Last Name\"")
                 limit = arguments.get("limit", 50)
 
-                # Select specific columns to avoid memory issues with large records
-                sql = f"""SELECT "Last Name", "First Name", "Middle Initial",
+                # Select specific columns to avoid memory issues (table has 630 columns!)
+                sql = f"""SELECT "Patient ID#", "Last Name", "First Name", "Middle Initial",
                          "Street Address", "City", "State", "Zip",
-                         "Home Phone", "Work Phone", "birth date"
+                         "Home Phone", "Work Phone", "Birth Date",
+                         "Social Security #", "Type of Insurance",
+                         "Date Entered", "Exam Date", "Recall Date"
                          FROM Patients WHERE {field} LIKE ?"""
 
                 conn = get_connection("Patients")
@@ -669,18 +671,23 @@ def create_server(config: FileMakerConfig = None) -> Server:
                 conditions = []
                 params = []
 
-                # Note: Field names may need adjustment based on actual schema
+                # Actual field names from schema
                 if patient_id:
-                    conditions.append("\"patient id#\" = ?")
+                    conditions.append("\"Patient ID#\" = ?")
                     params.append(patient_id)
                 if start_date:
-                    conditions.append("\"trans date\" >= ?")
+                    conditions.append("\"Transaction Date\" >= ?")
                     params.append(start_date)
                 if end_date:
-                    conditions.append("\"trans date\" <= ?")
+                    conditions.append("\"Transaction Date\" <= ?")
                     params.append(end_date)
 
-                sql = "SELECT * FROM Transactions"
+                # Select key columns (table has 533 columns!)
+                sql = """SELECT "Patient ID#", "Last Name", "First Name",
+                        "Transaction Date", "Transaction #",
+                        "Exam Proc", "CL Fitting Proc", "Photos Proc",
+                        "Office Proc", "Solutions"
+                        FROM Transactions"""
                 if conditions:
                     sql += " WHERE " + " AND ".join(conditions)
 
