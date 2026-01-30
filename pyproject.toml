@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "filemaker-mcp-server"
+version = "0.1.0"
+description = "MCP server for connecting to FileMaker 9 Pro via ODBC"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+keywords = ["mcp", "filemaker", "odbc", "database"]
+authors = [
+    { name = "Professional Eyecare" }
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "pyodbc>=5.0.0",
+]
+
+[project.scripts]
+filemaker-mcp-server = "filemaker_mcp_server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
