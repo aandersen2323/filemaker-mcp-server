@@ -56,30 +56,27 @@ class FileMakerReports:
         conn = self.get_connection("Appointments")
         cursor = conn.cursor()
 
-        # Total appointments for the day
+        # Get all appointments for the day and count in Python
+        # (FileMaker ODBC doesn't support GROUP BY well)
         cursor.execute(
-            "SELECT COUNT(*) FROM Appointments WHERE dateappt = ?",
+            "SELECT doctor, examtype FROM Appointments WHERE dateappt = ?",
             (date,)
         )
-        total = cursor.fetchone()[0]
+        rows = cursor.fetchall()
 
-        # Appointments by doctor
-        cursor.execute("""
-            SELECT doctor, COUNT(*) as count
-            FROM Appointments
-            WHERE dateappt = ?
-            GROUP BY doctor
-        """, (date,))
-        by_doctor = {row[0] or "Unassigned": row[1] for row in cursor.fetchall()}
+        total = len(rows)
 
-        # Appointments by exam type
-        cursor.execute("""
-            SELECT examtype, COUNT(*) as count
-            FROM Appointments
-            WHERE dateappt = ?
-            GROUP BY examtype
-        """, (date,))
-        by_type = {row[0] or "Unspecified": row[1] for row in cursor.fetchall()}
+        # Count by doctor
+        by_doctor = {}
+        for row in rows:
+            doc = row[0] or "Unassigned"
+            by_doctor[doc] = by_doctor.get(doc, 0) + 1
+
+        # Count by exam type
+        by_type = {}
+        for row in rows:
+            exam = row[1] or "Unspecified"
+            by_type[exam] = by_type.get(exam, 0) + 1
 
         return {
             "date": date,
@@ -93,15 +90,19 @@ class FileMakerReports:
         conn = self.get_connection("Appointments")
         cursor = conn.cursor()
 
-        cursor.execute("""
-            SELECT dateappt, COUNT(*) as count
-            FROM Appointments
-            WHERE dateappt BETWEEN ? AND ?
-            GROUP BY dateappt
-            ORDER BY dateappt
-        """, (start_date, end_date))
+        # FileMaker ODBC doesn't support GROUP BY, so count in Python
+        cursor.execute(
+            "SELECT dateappt FROM Appointments WHERE dateappt BETWEEN ? AND ?",
+            (start_date, end_date)
+        )
 
-        return [{"date": str(row[0]), "count": row[1]} for row in cursor.fetchall()]
+        # Count by date
+        counts = {}
+        for row in cursor.fetchall():
+            date_str = str(row[0])
+            counts[date_str] = counts.get(date_str, 0) + 1
+
+        return [{"date": d, "count": c} for d, c in sorted(counts.items())]
 
     def get_patient_stats(self) -> dict:
         """Get patient statistics."""
