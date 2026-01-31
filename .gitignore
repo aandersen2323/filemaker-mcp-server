@@ -51,3 +51,11 @@ Thumbs.db
 # Environment variables (may contain credentials)
 .env
 .env.local
+
+# Google API credentials
+google_credentials.json
+*.json
+!package.json
+
+# Report output
+latest_report.json
